@@ -163,14 +163,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Set up JDK 17
+- name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
 
-     
-- name: Generate Android native project
+      - name: Generate Android native project
         run: npx expo prebuild --platform android --clean --no-install
 
       - name: Check release signing configuration
