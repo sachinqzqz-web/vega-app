@@ -4,11 +4,11 @@ const {withGradleProperties} = require('expo/config-plugins');
 // compiler workers and Metro. A 4GB heap starves memory-constrained hosts
 // (e.g. WSL2) and causes the VM to be OOM-killed mid-build.
 const GRADLE_PROPERTIES = {
-  'org.gradle.jvmargs': '-Xmx3072m -XX:MaxMetaspaceSize=768m',
+  'org.gradle.jvmargs': '-Xmx3072m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8',
   // Cap concurrent Gradle workers so parallel module builds don't spike RAM.
-  'org.gradle.workers.max': '4',
+  'org.gradle.workers.max': '2',
   // Bound the Kotlin daemon heap; it otherwise sizes to the host and adds up.
-  'kotlin.daemon.jvmargs': '-Xmx1536m',
+  'kotlin.daemon.jvmargs': '-Xmx1g',
   'reactNativeArchitectures': 'armeabi-v7a,arm64-v8a',
   'expo.useLegacyPackaging': 'true',
   // Store the Hermes bundle uncompressed so it is memory-mapped at launch
