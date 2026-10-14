@@ -170,12 +170,14 @@ jobs:
           java-version: '17'
 
      
-      - name: Generate Android native project
+- name: Generate Android native project
         run: npx expo prebuild --platform android --clean --no-install
-- name: Check release signing configuration
+
+      - name: Check release signing configuration
         run: |
           echo "Checking generated Gradle signing configuration..."
           grep -n -A 20 -B 5 "signingConfig" android/app/build.gradle || true
+
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
