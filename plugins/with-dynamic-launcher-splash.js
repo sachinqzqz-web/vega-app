@@ -1,5 +1,4 @@
 const fs = require('fs');
-const {addVideoPlayerAlias} = require('./video-player-intents');
 const path = require('path');
 const {
   withAndroidManifest,
@@ -85,6 +84,8 @@ const withLauncherManifest = config =>
     // TV artwork belongs to the selected launcher alias. A fixed application
     // banner lets TV launchers keep showing the default color after alias changes.
     delete application.$['android:banner'];
+    // Keep the installed launcher label aligned with the branded app name.
+    application.$['android:label'] = 'AnimePlex';
     const mainActivity = application.activity?.find(
       activity => activity?.$?.['android:name'] === '.MainActivity',
     );
@@ -102,7 +103,6 @@ const withLauncherManifest = config =>
       createLauncherAlias(packageName, variants[0], '.LauncherDefault', true),
       ...variants.map(variant => createLauncherAlias(packageName, variant)),
     ];
-    addVideoPlayerAlias(application);
     return manifestConfig;
   });
 
@@ -188,9 +188,7 @@ const writeLauncherResources = resRoot => {
       path.join(drawable, `ic_launcher_foreground_${id}.xml`),
       `<bitmap xmlns:android="http://schemas.android.com/apk/res/android"
     android:gravity="center"
-    android:src="@mipmap/ic_launcher_foreground"
-    android:tint="${variant.color}"
-    android:tintMode="src_in" />\n`,
+    android:src="@mipmap/ic_launcher_foreground" />\n`,
     );
     fs.writeFileSync(
       path.join(drawableV26, `ic_launcher_${id}.xml`),
