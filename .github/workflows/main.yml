@@ -169,12 +169,14 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      # Decode the keystore from your secret
-      
+     
+      - name: Generate Android native project
+        run: npx expo prebuild --platform android --clean --no-install
 
-      # Make gradlew executable
       - name: Make gradlew executable
         run: chmod +x android/gradlew
+
+      # Make gradlew executabl
 
       # Define the build timestamp
       - name: Set build timestamp
