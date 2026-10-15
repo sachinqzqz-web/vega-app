@@ -560,11 +560,19 @@ export class ExtensionManager {
       const installed = extensionStorage.getInstalledProviders();
       state.setInstalledProviders(installed);
       const current = state.provider;
+      const preferred = installed.find(item =>
+        item.value === defaultProvider &&
+        (!item.source?.author || item.source.author === extensionStorage.getProviderSource()?.author),
+      );
       const currentIsInstalled = installed.some(item =>
         item.value === current?.value && item.source?.author === current?.source?.author,
       );
-      if (!currentIsInstalled && installed.length > 0) {
-        state.setProvider(installed.find(item => item.value === defaultProvider) || installed[0]);
+      // Remote admin changes must override the previously selected provider
+      // on the next app initialization, without requiring an APK reinstall.
+      if (preferred) {
+        state.setProvider(preferred);
+      } else if (!currentIsInstalled && installed.length > 0) {
+        state.setProvider(installed[0]);
       }
     } catch (error) {
       console.warn('Could not sync installed providers to app state:', error);
