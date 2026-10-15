@@ -513,133 +513,55 @@ export class ExtensionManager {
   }
 
   /**
-   * Read the provider defaults from a remotely editable config file.
-   * This lets the app owner change the source/default without rebuilding APKs.
-   */
-  private async syncRemoteProviderConfig(): Promise<{defaultProvider: string}> {
-    const configUrl =
-      'https://raw.githubusercontent.com/sachinqzqz-web/vega-app/refs/heads/main/provider-config.json';
-
-    try {
-      const response = await axios.get(configUrl, {
-        timeout: 8000,
-        headers: {'Cache-Control': 'no-cache'},
-      });
-      const config = response.data;
-      if (
-        !config ||
-        typeof config.providerSource !== 'string' ||
-        !config.providerSource.trim()
-      ) {
-        throw new Error('Invalid remote provider configuration');
-      }
-
-      const source = createProviderSource(config.providerSource);
-      const existing = extensionStorage
-        .getProviderSources()
-        .find(item => item.author === source.author);
-
-      if (
-        !existing ||
-        existing.url !== source.url ||
-        existing.manifestUrl !== source.manifestUrl
-      ) {
-        extensionStorage.addProviderSources(
-          source.author,
-          source.url,
-          source.manifestUrl,
-        );
-      }
-      extensionStorage.setDefaultProviderSource(source.author);
-
-      return {
-        defaultProvider:
-          typeof config.defaultProvider === 'string' &&
-          config.defaultProvider.trim()
-            ? config.defaultProvider.trim()
-            : 'movieBoxWeb',
-      };
-    } catch (error) {
-      console.warn(
-        'Remote provider config unavailable; using saved/default source:',
-        error,
-      );
-      return {defaultProvider: 'movieBoxWeb'};
-    }
-  }
-
-  /**
-   * Initialize provider sources and automatically install the configured
-   * default provider when it is available and enabled in the manifest.
+   * Initialize extension system
    */
   async initialize(): Promise<void> {
     try {
       this.migrateLegacyCustomProviderSource();
 
-      const remoteConfig = await this.syncRemoteProviderConfig();
-
-      // Keep a fallback for first launch if the remote config is unavailable.
+      // Seed only a new installation. A stored empty list means the user
+      // deliberately removed their sources and must remain empty.
       if (
         extensionStorage.getProviderSources().length === 0 &&
         !mainStorage.contains(ExtensionKeys.PROVIDER_SOURCES)
       ) {
         try {
-          const defaultSource = createProviderSource('sachinqzqz-web');
-          extensionStorage.addProviderSources(
-            defaultSource.author,
-            defaultSource.url,
-            defaultSource.manifestUrl,
-          );
+          const defaultSource = createProviderSource('Zenda-Cross');
+          extensionStorage.addProviderSources(defaultSource.author, defaultSource.url);
           extensionStorage.setDefaultProviderSource(defaultSource.author);
         } catch (e) {
           console.warn('Failed to seed default provider source:', e);
         }
       }
 
+      // Load providers from cache
       const source = this.getActiveSource();
+      const installed = extensionStorage.getInstalledProviders();
+      const available = source
+        ? extensionStorage.getAvailableProviders(source.author)
+        : [];
+
+      console.log(`Loaded ${installed.length} installed providers`);
+      console.log(`Loaded ${available.length} available providers`);
+
       if (!source) {
         console.log('No provider source configured yet');
         return;
       }
 
-      console.log(
-        `Loaded ${extensionStorage.getInstalledProviders().length} installed providers`,
-      );
-
-      try {
-        // Refresh manifest on startup so remote changes can take effect.
-        const available = await this.fetchManifest(source, true);
-        const defaultProvider = available.find(
-          provider =>
-            provider.value === remoteConfig.defaultProvider &&
-            !provider.disabled,
-        );
-
-        if (!defaultProvider) {
-          console.warn(
-            `Configured default provider "${remoteConfig.defaultProvider}" was not found or is disabled in the manifest`,
-          );
-          return;
+      // Try to fetch latest manifest if cache is expired
+      if (extensionStorage.isManifestCacheExpired(source.author)) {
+        try {
+          await this.fetchManifest(source, false);
+        } catch (error) {
+          console.warn('Failed to refresh manifest on startup:', error);
         }
-
-        if (
-          !extensionStorage.isProviderInstalled(
-            defaultProvider.value,
-            defaultProvider.source.author,
-          )
-        ) {
-          await this.installProvider(defaultProvider);
-          console.log(
-            `Automatically installed default provider: ${defaultProvider.display_name}`,
-          );
-        }
-      } catch (error) {
-        console.warn('Failed to refresh/install default provider:', error);
       }
     } catch (error) {
       console.error('Failed to initialize extension system:', error);
     }
   }
+
   /**
    * Enable/disable test mode
    */
