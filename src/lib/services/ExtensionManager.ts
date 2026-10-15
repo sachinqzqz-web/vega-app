@@ -7,6 +7,7 @@ import {
   ProviderSource,
 } from '../storage/extensionStorage';
 import {mainStorage} from '../storage/StorageService';
+import useContentStore from '../zustand/contentStore';
 import {
   getSourceAuthHeaders,
   sourceTokenStorage,
@@ -57,6 +58,8 @@ export const throwIfRateLimited = (error: unknown): void => {
 export class ExtensionManager {
   private static instance: ExtensionManager;
   private readonly legacyCustomProviderBaseUrlKey = 'customProviderBaseUrl';
+
+  private initializationPromise: Promise<void> | null = null;
 
   private testMode = false;
   private baseUrlTestMode = '';
@@ -516,68 +519,97 @@ export class ExtensionManager {
    * Initialize extension system
    */
   async initialize(): Promise<void> {
+    if (this.initializationPromise) return this.initializationPromise;
+    const pending = this.initializeConfiguredProviders();
+    this.initializationPromise = pending;
+    try {
+      await pending;
+    } finally {
+      if (this.initializationPromise === pending) this.initializationPromise = null;
+    }
+  }
+
+  private async syncRemoteProviderConfig(): Promise<{defaultProvider: string}> {
+    const fallbackSource = 'https://github.com/sachinqzqz-web/vega-providers/tree/main';
+    let providerSource = fallbackSource;
+    let defaultProvider = 'movieBoxWeb';
+    try {
+      const response = await axios.get(
+        'https://raw.githubusercontent.com/sachinqzqz-web/vega-app/refs/heads/main/provider-config.json',
+        {timeout: 8000, headers: {'Cache-Control': 'no-cache'}},
+      );
+      const config = response.data;
+      if (config && typeof config.providerSource === 'string' && config.providerSource.trim()) {
+        providerSource = config.providerSource.trim();
+      }
+      if (config && typeof config.defaultProvider === 'string' && config.defaultProvider.trim()) {
+        defaultProvider = config.defaultProvider.trim();
+      }
+    } catch (error) {
+      console.warn('Remote provider config unavailable; using built-in defaults:', error);
+    }
+    const source = createProviderSource(providerSource);
+    extensionStorage.addProviderSources(source.author, source.url, source.manifestUrl);
+    extensionStorage.setDefaultProviderSource(source.author);
+    return {defaultProvider};
+  }
+
+  private syncInstalledProvidersToStore(defaultProvider = 'movieBoxWeb'): void {
+    try {
+      const state = useContentStore.getState();
+      const installed = extensionStorage.getInstalledProviders();
+      state.setInstalledProviders(installed);
+      const current = state.provider;
+      const currentIsInstalled = installed.some(item =>
+        item.value === current?.value && item.source?.author === current?.source?.author,
+      );
+      if (!currentIsInstalled && installed.length > 0) {
+        state.setProvider(installed.find(item => item.value === defaultProvider) || installed[0]);
+      }
+    } catch (error) {
+      console.warn('Could not sync installed providers to app state:', error);
+    }
+  }
+
+  private async initializeConfiguredProviders(): Promise<void> {
     try {
       this.migrateLegacyCustomProviderSource();
-
-      // Seed only a brand-new installation. Do not overwrite an intentional
-      // empty source list if the user removed their sources.
-      if (
-        extensionStorage.getProviderSources().length === 0 &&
-        !mainStorage.contains(ExtensionKeys.PROVIDER_SOURCES)
-      ) {
-        const defaultSource = createProviderSource(
-          'https://github.com/sachinqzqz-web/vega-providers',
-        );
-        extensionStorage.addProviderSources(
-          defaultSource.author,
-          defaultSource.url,
-          defaultSource.manifestUrl,
-        );
-        extensionStorage.setDefaultProviderSource(defaultSource.author);
-      }
-
+      const remoteConfig = await this.syncRemoteProviderConfig();
       const source = this.getActiveSource();
       if (!source) {
-        console.log('No provider source configured yet');
+        console.warn('No provider source configured');
         return;
       }
-
-      const installed = extensionStorage.getInstalledProviders();
-      console.log(`Loaded ${installed.length} installed providers`);
-
-      // Always refresh this source once at startup so new installs have its
-      // providers available immediately; retain existing cache on network errors.
       let available: ProviderExtension[];
       try {
         available = await this.fetchManifest(source, true);
       } catch (error) {
         console.warn('Failed to refresh provider manifest on startup:', error);
         available = extensionStorage.getAvailableProviders(source.author);
-        if (available.length === 0) {
-          throw error;
-        }
+        if (available.length === 0) throw error;
       }
-
-      const defaultProvider =
-        available.find(provider => provider.value === 'movieBoxWeb' && !provider.disabled) ||
-        available.find(provider => !provider.disabled);
-
-      if (
-        defaultProvider &&
-        !extensionStorage.isProviderInstalled(
-          defaultProvider.value,
-          defaultProvider.source.author,
-        )
-      ) {
+      // Install the configured default first, then the rest sequentially so
+      // concurrent writes cannot race the shared persistent module cache.
+      const enabled = available.filter(provider => !provider.disabled);
+      const preferred = enabled.find(provider => provider.value === remoteConfig.defaultProvider);
+      const ordered = preferred
+        ? [preferred, ...enabled.filter(provider => provider.value !== preferred.value)]
+        : enabled;
+      console.log(`Provider source ready: ${source.author}; ${ordered.length} enabled providers`);
+      for (const provider of ordered) {
+        if (extensionStorage.isProviderInstalled(provider.value, provider.source.author)) continue;
         try {
-          await this.installProvider(defaultProvider);
-          console.log(`Automatically installed default provider: ${defaultProvider.display_name}`);
+          await this.installProvider(provider);
+          this.syncInstalledProvidersToStore(remoteConfig.defaultProvider);
+          console.log(`Automatically installed provider: ${provider.display_name}`);
         } catch (error) {
-          console.warn('Failed to auto-install default provider:', error);
+          console.warn(`Failed to auto-install provider ${provider.display_name}:`, error);
         }
       }
+      this.syncInstalledProvidersToStore(remoteConfig.defaultProvider);
     } catch (error) {
-      console.error('Failed to initialize extension system:', error);
+      console.error('Failed to initialize provider sources/install providers:', error);
+      this.syncInstalledProvidersToStore();
     }
   }
 
