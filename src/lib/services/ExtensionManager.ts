@@ -519,42 +519,61 @@ export class ExtensionManager {
     try {
       this.migrateLegacyCustomProviderSource();
 
-      // Seed only a new installation. A stored empty list means the user
-      // deliberately removed their sources and must remain empty.
+      // Seed only a brand-new installation. Do not overwrite an intentional
+      // empty source list if the user removed their sources.
       if (
         extensionStorage.getProviderSources().length === 0 &&
         !mainStorage.contains(ExtensionKeys.PROVIDER_SOURCES)
       ) {
-        try {
-          const defaultSource = createProviderSource('Zenda-Cross');
-          extensionStorage.addProviderSources(defaultSource.author, defaultSource.url);
-          extensionStorage.setDefaultProviderSource(defaultSource.author);
-        } catch (e) {
-          console.warn('Failed to seed default provider source:', e);
-        }
+        const defaultSource = createProviderSource(
+          'https://github.com/sachinqzqz-web/vega-providers',
+        );
+        extensionStorage.addProviderSources(
+          defaultSource.author,
+          defaultSource.url,
+          defaultSource.manifestUrl,
+        );
+        extensionStorage.setDefaultProviderSource(defaultSource.author);
       }
 
-      // Load providers from cache
       const source = this.getActiveSource();
-      const installed = extensionStorage.getInstalledProviders();
-      const available = source
-        ? extensionStorage.getAvailableProviders(source.author)
-        : [];
-
-      console.log(`Loaded ${installed.length} installed providers`);
-      console.log(`Loaded ${available.length} available providers`);
-
       if (!source) {
         console.log('No provider source configured yet');
         return;
       }
 
-      // Try to fetch latest manifest if cache is expired
-      if (extensionStorage.isManifestCacheExpired(source.author)) {
+      const installed = extensionStorage.getInstalledProviders();
+      console.log(`Loaded ${installed.length} installed providers`);
+
+      // Always refresh this source once at startup so new installs have its
+      // providers available immediately; retain existing cache on network errors.
+      let available: ProviderExtension[];
+      try {
+        available = await this.fetchManifest(source, true);
+      } catch (error) {
+        console.warn('Failed to refresh provider manifest on startup:', error);
+        available = extensionStorage.getAvailableProviders(source.author);
+        if (available.length === 0) {
+          throw error;
+        }
+      }
+
+      const defaultProvider =
+        available.find(provider => provider.value === 'movieBoxWeb' && !provider.disabled) ||
+        available.find(provider => !provider.disabled);
+
+      if (
+        defaultProvider &&
+        !extensionStorage.isProviderInstalled(
+          defaultProvider.value,
+          defaultProvider.source.author,
+        )
+      ) {
         try {
-          await this.fetchManifest(source, false);
+          await this.installProvider(defaultProvider);
+          console.log(`Automatically installed default provider: ${defaultProvider.display_name}`);
         } catch (error) {
-          console.warn('Failed to refresh manifest on startup:', error);
+          console.warn('Failed to auto-install default provider:', error);
         }
       }
     } catch (error) {
