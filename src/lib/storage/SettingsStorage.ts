@@ -1,4 +1,5 @@
 import {mainStorage} from './StorageService';
+import {normalizePlayerControlLayout, PlayerControlLayout, PlayerControlId, PLAYER_CONTROL_IDS} from '../player/controlLayout';
 import {
   DownloadLocationConfig,
   getDownloadLocationDisplayValue,
@@ -43,6 +44,8 @@ export enum SettingsKeys {
   BACK_BUFFER_MB = 'backBufferMB',
   SEEK_INTERVAL = 'seekInterval',
   PLAYBACK_SPEED = 'playbackSpeed',
+  PLAYER_CONTROL_LAYOUT = 'playerControlLayout',
+  HIDDEN_PLAYER_CONTROLS = 'hiddenPlayerControls',
 
   // Quality settings
   EXCLUDED_QUALITIES = 'excludedQualities',
@@ -53,6 +56,7 @@ export enum SettingsKeys {
   // Download settings
   DOWNLOAD_LOCATION = 'downloadLocation',
   DOWNLOAD_CONCURRENCY = 'downloadConcurrency',
+  AUTO_DOWNLOAD_SERVER_FALLBACK = 'autoDownloadServerFallback',
   DOWNLOAD_CONNECTIONS = 'downloadConnections',
   PARALLEL_STREAMING = 'parallelStreaming',
 
@@ -129,13 +133,18 @@ const isValidSeekInterval = (value: number | undefined): value is number =>
   (SEEK_INTERVAL_OPTIONS as readonly number[]).includes(value as number);
 /** Speeds offered by the player speed picker. */
 export const PLAYBACK_SPEEDS = [
-  0.25, 0.5, 1.0, 1.25, 1.35, 1.5, 1.75, 2,
+  0.25, 0.5, 0.75, 1.0, 1.25, 1.35, 1.5, 1.75, 2,
 ] as const;
+export const PLAYBACK_SPEED_MIN = 0.25;
+export const PLAYBACK_SPEED_MAX = 2;
+export const PLAYBACK_SPEED_STEP = 0.05;
 const DEFAULT_PLAYBACK_SPEED = 1.0;
 
 const isAllowedPlaybackSpeed = (value: unknown): value is number =>
   typeof value === 'number' &&
-  (PLAYBACK_SPEEDS as readonly number[]).includes(value);
+  Number.isFinite(value) &&
+  value >= PLAYBACK_SPEED_MIN && value <= PLAYBACK_SPEED_MAX &&
+  Math.abs(value / PLAYBACK_SPEED_STEP - Math.round(value / PLAYBACK_SPEED_STEP)) < 1e-6;
 
 const DEFAULT_FORWARD_BUFFER_MB = 64;
 const DEFAULT_BACK_BUFFER_MB = 0;
@@ -477,6 +486,36 @@ export class SettingsStorage {
     return isAllowedPlaybackSpeed(value) ? value : DEFAULT_PLAYBACK_SPEED;
   }
 
+  getPlayerControlLayout(): PlayerControlLayout {
+    try {
+      return normalizePlayerControlLayout(JSON.parse(mainStorage.getString(SettingsKeys.PLAYER_CONTROL_LAYOUT) || 'null'));
+    } catch {
+      return normalizePlayerControlLayout(null);
+    }
+  }
+
+  getHiddenPlayerControls(): PlayerControlId[] {
+    const saved = mainStorage.getArray<string>(SettingsKeys.HIDDEN_PLAYER_CONTROLS) || [];
+    const hidden = new Set<PlayerControlId>((Array.isArray(saved) ? saved : []).filter(id =>
+      PLAYER_CONTROL_IDS.includes(id as PlayerControlId) && id !== 'sleep' && id !== 'episodes',
+    ) as PlayerControlId[]);
+    // These controls already have Preferences switches; keep those keys authoritative.
+    if (!this.showSleepTimer()) hidden.add('sleep');
+    if (!this.showPlayerEpisodeSidebar()) hidden.add('episodes');
+    return [...hidden];
+  }
+
+  setHiddenPlayerControls(hidden: PlayerControlId[]): void {
+    const ids = new Set(hidden.filter(id => PLAYER_CONTROL_IDS.includes(id)));
+    this.setShowSleepTimer(!ids.has('sleep'));
+    this.setShowPlayerEpisodeSidebar(!ids.has('episodes'));
+    mainStorage.setArray(SettingsKeys.HIDDEN_PLAYER_CONTROLS, [...ids].filter(id => id !== 'sleep' && id !== 'episodes'));
+  }
+
+  setPlayerControlLayout(layout: PlayerControlLayout): void {
+    mainStorage.setString(SettingsKeys.PLAYER_CONTROL_LAYOUT, JSON.stringify(normalizePlayerControlLayout(layout)));
+  }
+
   setPlaybackSpeed(speed: number): void {
     if (isAllowedPlaybackSpeed(speed)) {
       mainStorage.setNumber(SettingsKeys.PLAYBACK_SPEED, speed);
@@ -488,6 +527,14 @@ export class SettingsStorage {
     return typeof value === 'number' && Number.isFinite(value)
       ? Math.min(Math.max(Math.round(value), 1), 5)
       : 2;
+  }
+
+  isAutoDownloadServerFallbackEnabled(): boolean {
+    return mainStorage.getBool(SettingsKeys.AUTO_DOWNLOAD_SERVER_FALLBACK, true);
+  }
+
+  setAutoDownloadServerFallbackEnabled(enabled: boolean): void {
+    mainStorage.setBool(SettingsKeys.AUTO_DOWNLOAD_SERVER_FALLBACK, enabled);
   }
 
   setDownloadConcurrency(value: number): void {
