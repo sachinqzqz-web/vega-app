@@ -69,9 +69,29 @@ const ProviderSourceManager = ({
       return;
     }
 
-    const currentSources = extensionStorage.getProviderSources();
-    setSources(currentSources);
+    let currentSources = extensionStorage.getProviderSources();
 
+    // Ensure the default public provider source exists synchronously before
+    // rendering the Add Source dialog. Startup config fetching may still be
+    // in flight when this settings screen mounts.
+    if (currentSources.length === 0) {
+      try {
+        const defaultSource = createProviderSource(
+          'https://github.com/sachinqzqz-web/vega-providers/tree/main',
+        );
+        extensionStorage.addProviderSources(
+          defaultSource.author,
+          defaultSource.url,
+          defaultSource.manifestUrl,
+        );
+        extensionStorage.setDefaultProviderSource(defaultSource.author);
+        currentSources = extensionStorage.getProviderSources();
+      } catch (error) {
+        console.warn('Failed to seed default provider source:', error);
+      }
+    }
+
+    setSources(currentSources);
     if (currentSources.length === 0) {
       setShowAddDialog(true);
     }
