@@ -1,4 +1,4 @@
 {
   "providerSource": "https://github.com/sachinqzqz-web/vega-providers/tree/main",
-  "defaultProvider": "movieBoxWeb"
+  "defaultProvider": "vega"
 }
