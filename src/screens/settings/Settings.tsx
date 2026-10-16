@@ -341,8 +341,8 @@ const Settings = ({navigation}: Props) => {
               </Animated.View>
             )}
 
-            {/* Content provider section */}
-            <AnimatedSection delay={100}>
+            {/* Provider controls are managed remotely through AnimePlex Admin. */}
+            {false && <AnimatedSection delay={100}>
               <View className="mb-6">
                 <AppText
                   role="labelLarge"
@@ -394,7 +394,7 @@ const Settings = ({navigation}: Props) => {
                   onPress={() => navigation.navigate('Extensions')}
                 />
               </SettingsSection>
-            </AnimatedSection>
+            </AnimatedSection>}
 
             {/* Network Section */}
             <AnimatedSection delay={150}>
